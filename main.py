@@ -1,12 +1,12 @@
-# Import libraries
-import cv2, time
-import numpy as np
 import mediapipe as mp
+import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
-import joblib
+import cv2, time, joblib
 
-gesture_model = joblib.load("direction_model.pkl")
+annotated_frame = None
+
+gesture_state = None
 
 mp_hands = mp.tasks.vision.HandLandmarksConnections
 mp_drawing = mp.tasks.vision.drawing_utils
@@ -43,97 +43,84 @@ def draw_landmarks_on_image(rgb_image, detection_result):
         text_y = int(min(y_coordinates) * height) - MARGIN
 
         # Draw handedness (left or right hand) on the image.
-        # cv2.putText(annotated_image, f"{handedness[0].category_name}",
-        #             (text_x, text_y), cv2.FONT_HERSHEY_DUPLEX,
-        #             FONT_SIZE, HANDEDNESS_TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
-
-        # Draw gesture prediction on the image
-        data = []
-        for landmark in hand_landmarks:
-            data.append(landmark.x)
-            data.append(landmark.y)
-
-        prediction = gesture_model.predict([data])[0]
-        prob = gesture_model.predict_proba([data])[0]
-        
-        category_name = {
-            0: "up",
-            1: "right",
-            2: "down",
-            3: "left",
-            4: "open hand",
-            5: "closed hand"
+        hand = {
+            0: "left",
+            1: "right"
         }
 
-        cv2.putText(annotated_image, f"{category_name[prediction]} {round(prob[prediction], 2)}",
-            (text_x, text_y), cv2.FONT_HERSHEY_DUPLEX,
-            FONT_SIZE, HANDEDNESS_TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
+        cv2.putText(annotated_image, f"{hand[handedness[0].index]}",
+                    (text_x, text_y), cv2.FONT_HERSHEY_DUPLEX,
+                    FONT_SIZE, HANDEDNESS_TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
+
+        # Draw gesture prediction on the image        
+        # category_name = {
+        #     0: "up",
+        #     1: "right",
+        #     2: "down",
+        #     3: "left",
+        #     4: "open hand",
+        #     5: "closed hand"
+        # }
+
+        # cv2.putText(annotated_image, f"{category_name[prediction]} {round(prob[prediction], 2)}",
+        #     (text_x, text_y), cv2.FONT_HERSHEY_DUPLEX,
+        #     FONT_SIZE, HANDEDNESS_TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
 
     return annotated_image
 
-# Initialise camera capture
-cam = cv2.VideoCapture(0)
-start_time = time.time()
-
-# Init file capture
-f = open("raw_output.txt", "w", encoding="utf-8")
-
-# Setup the task
 BaseOptions = mp.tasks.BaseOptions
 HandLandmarker = mp.tasks.vision.HandLandmarker
 HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
-HandLandmarkerResult = mp.tasks.vision.HandLandmarkerResult
 VisionRunningMode = mp.tasks.vision.RunningMode
 
-annotated_frame = None
-
-# Create a hand landmarker instance with the live stream mode:
-def print_result(result: HandLandmarkerResult, output_image: mp.Image, timestamp_ms: int):
+def on_result(result, output_image: mp.Image, timestamp_ms: int):
     global annotated_frame
     annotated_frame = draw_landmarks_on_image(output_image.numpy_view(), result)
     annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
 
-    # Write output to file
-    for landmarks in result.hand_landmarks:
-        print(f"hand landmark result: {landmarks}")
-        line = str(timestamp_ms)
-        for landmark in landmarks:
-            line += (f",{str(landmark.x)},{str(landmark.y)}")
+    wrist_x, wrist_y = result.hand_landmarks[0][0].x, result.hand_landmarks[0][0].y
+    index_finger_mcp_x, index_finger_mcp_y = result.hand_landmarks[0][5].x, result.hand_landmarks[0][5].y
+    index_finger_pip_x, index_finger_pip_y = result.hand_landmarks[0][6].x, result.hand_landmarks[0][6].y
 
-        f.write(line + ",3") # Change data collection target here
-        f.write("\n")
-
+    v50 = np.array([wrist_x - index_finger_mcp_x , wrist_y - index_finger_mcp_y])*100
+    v56 = np.array([index_finger_pip_x - index_finger_mcp_x, index_finger_pip_y - index_finger_mcp_y])*100
+    
+    angle = np.arccos((np.dot(v50, v56))/np.linalg.norm(v50)*np.linalg.norm(v56))
+    
+    print(np.degrees(np.clip(np.dot(v50, v56), -1.0, 1.0))/np.linalg.norm(v50)*np.linalg.norm(v56))
 
 options = HandLandmarkerOptions(
-    base_options=BaseOptions(model_asset_path='hand_landmarker.task'),
+    base_options=BaseOptions(model_asset_path="./dependencies/hand_landmarker.task"),
     running_mode=VisionRunningMode.LIVE_STREAM,
     num_hands=2,
-    min_tracking_confidence=0.5,
-    result_callback=print_result)
+    result_callback=on_result,
+)
 
 with HandLandmarker.create_from_options(options) as landmarker:
+    cam = cv2.VideoCapture(0)
+    start_time = time.time()
 
     while cam.isOpened():
-        ok, frame = cam.read() # Read the camera data
+        ok, frame = cam.read()
 
         if not ok or frame is None:
             continue
 
         frame = cv2.flip(frame, 1)
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-        frame_timestamp_ms = int((time.time() - start_time) * 1000)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame) # Convert the camera feed into an mp.Image type
-        landmarker.detect_async(mp_image, frame_timestamp_ms) # Detect hand landmarks
+        timestamp_ms = int((time.time() - start_time)*1000)
         
-        if annotated_frame is not None:
-            cv2.imshow("Gesture detection", annotated_frame) # Show the camera in window
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
+        landmarker.detect_async(mp_image, timestamp_ms)
 
-        # Allow quit on keypress "q"
+        if annotated_frame is not None:
+            cv2.imshow("Gesture detection", annotated_frame)
+        else:
+            cv2.imshow("Gesture detection", frame)
+
+
         if cv2.waitKey(1) & 0xFF==ord('q'):
             break
 
-    # Destroy window when complete
     cam.release()
     cv2.destroyAllWindows()
-    f.close()

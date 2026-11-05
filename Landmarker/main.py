@@ -5,9 +5,6 @@ import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 import joblib
-import pyautogui
-
-gesture_state = None
 
 gesture_model = joblib.load("direction_model.pkl")
 
@@ -58,9 +55,6 @@ def draw_landmarks_on_image(rgb_image, detection_result):
 
         prediction = gesture_model.predict([data])[0]
         prob = gesture_model.predict_proba([data])[0]
-
-        global gesture_state
-        gesture_state = prediction
         
         category_name = {
             0: "up",
@@ -81,6 +75,9 @@ def draw_landmarks_on_image(rgb_image, detection_result):
 cam = cv2.VideoCapture(0)
 start_time = time.time()
 
+# Init file capture
+f = open("./raw_output.txt", "w", encoding="utf-8")
+
 # Setup the task
 BaseOptions = mp.tasks.BaseOptions
 HandLandmarker = mp.tasks.vision.HandLandmarker
@@ -90,23 +87,22 @@ VisionRunningMode = mp.tasks.vision.RunningMode
 
 annotated_frame = None
 
-# Create a rate limited function to perform a mouse left click
-last_click_time = 0
-
-def left_click():
-    global last_click_time
-
-    current_time = time.time()
-
-    if current_time - last_click_time > 1:
-        last_click_time = time.time()
-        pyautogui.click()
-
 # Create a hand landmarker instance with the live stream mode:
 def print_result(result: HandLandmarkerResult, output_image: mp.Image, timestamp_ms: int):
     global annotated_frame
     annotated_frame = draw_landmarks_on_image(output_image.numpy_view(), result)
     annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
+
+    # Write output to file
+    for landmarks in result.hand_landmarks:
+        print(f"hand landmark result: {landmarks}")
+        line = str(timestamp_ms)
+        for landmark in landmarks:
+            line += (f",{str(landmark.x)},{str(landmark.y)}")
+
+        f.write(line + ",3") # Change data collection target here
+        f.write("\n")
+
 
 options = HandLandmarkerOptions(
     base_options=BaseOptions(model_asset_path='hand_landmarker.task'),
@@ -116,6 +112,7 @@ options = HandLandmarkerOptions(
     result_callback=print_result)
 
 with HandLandmarker.create_from_options(options) as landmarker:
+
     while cam.isOpened():
         ok, frame = cam.read() # Read the camera data
 
@@ -136,20 +133,7 @@ with HandLandmarker.create_from_options(options) as landmarker:
         if cv2.waitKey(1) & 0xFF==ord('q'):
             break
 
-        match gesture_state:
-            case 0:
-                pyautogui.move(0, -30)
-            case 1:
-                pyautogui.move(30, 0)
-            case 2:
-                pyautogui.move(0, 30)
-            case 3:
-                pyautogui.move(-30, 0)
-            case 4:
-                pass
-            case 5:
-                left_click()
-
     # Destroy window when complete
     cam.release()
     cv2.destroyAllWindows()
+    f.close()
