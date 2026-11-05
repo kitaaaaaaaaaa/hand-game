@@ -2,7 +2,7 @@ import mediapipe as mp
 import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
-import cv2, time, joblib
+import cv2, time, pyautogui
 
 annotated_frame = None
 
@@ -78,16 +78,16 @@ def on_result(result, output_image: mp.Image, timestamp_ms: int):
     annotated_frame = draw_landmarks_on_image(output_image.numpy_view(), result)
     annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
 
+    # Get key landmarks for first hand detected
     wrist_x, wrist_y = result.hand_landmarks[0][0].x, result.hand_landmarks[0][0].y
     index_finger_mcp_x, index_finger_mcp_y = result.hand_landmarks[0][5].x, result.hand_landmarks[0][5].y
-    index_finger_pip_x, index_finger_pip_y = result.hand_landmarks[0][6].x, result.hand_landmarks[0][6].y
 
-    v50 = np.array([wrist_x - index_finger_mcp_x , wrist_y - index_finger_mcp_y])*100
-    v56 = np.array([index_finger_pip_x - index_finger_mcp_x, index_finger_pip_y - index_finger_mcp_y])*100
-    
-    angle = np.arccos((np.dot(v50, v56))/np.linalg.norm(v50)*np.linalg.norm(v56))
-    
-    print(np.degrees(np.clip(np.dot(v50, v56), -1.0, 1.0))/np.linalg.norm(v50)*np.linalg.norm(v56))
+    v05 = np.array([index_finger_mcp_x - wrist_x, index_finger_mcp_y - wrist_y])
+    angle = np.degrees(np.arctan2(v05[1], v05[0]))
+
+    move_mag = 30
+    move_x, move_y = move_mag*np.cos(angle), move_mag*np.sin(angle)
+    pyautogui.move(move_x, move_y)
 
 options = HandLandmarkerOptions(
     base_options=BaseOptions(model_asset_path="./dependencies/hand_landmarker.task"),
