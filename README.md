@@ -12,9 +12,9 @@
 - Webcam -> OpenCV
 - MediaPipe -> hand landmarks
 - Custom gesture recognition:
-    - fist -> punch
-    - open hand -> block
-    - pinch -> grab
+    - fist -> punch       (0)
+    - open hand -> block  (1)
+    - pinch -> grab       (2)
     - others??
 - Ensure gesture cooldowns
 
