@@ -136,9 +136,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
             if event.type == pygame.QUIT:
                 break
 
-        screen.fill("purple")
+        screen.fill("white")
 
-        pygame.draw.circle(screen, "red", player_pos, 40)
+        pygame.draw.circle(screen, "black", player_pos, 40)
 
         keys = pygame.key.get_pressed()
         if keys[pygame.K_r]:
@@ -161,5 +161,4 @@ with HandLandmarker.create_from_options(options) as landmarker:
     # Destroy window when complete
     cam.release()
     cv2.destroyAllWindows()
-    f.close()
     pygame.quit()
